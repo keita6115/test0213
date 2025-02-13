@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>鹿児島県の暑さ指数</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: sans-serif;
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 16px;
+      background-color: #fff;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 1.5rem;
+    }
+
+    .map-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      background-color: #2A3D66; /* 淡い紺色 */
+    }
+
+    .map {
+      width: 100%;
+      height: 100%;
+    }
+
+    #humidity-info {
+      margin-top: 10px;
+      padding: 15px;
+      font-size: 20px;
+      font-weight: bold;
+      text-align: center;
+      background-color: #fff;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    /* ボタンのデザイン */
+    .area-button {
+      position: absolute;
+      top: 10px;
+      z-index: 1000;
+      padding: 6px 12px;
+      font-size: 12px;
+      border: 1px solid rgb(204, 204, 204);
+      border-radius: 4px;
+      cursor: pointer;
+      background: rgb(240, 240, 240);
+      color: black;
+    }
+
+    .area-button:hover {
+      background: rgb(200, 200, 200);
+    }
+
+    .area-button.active-region {
+      background: rgb(50, 116, 202);
+      color: white;
+    }
+
+    #btn-satsuma {
+      left: 10px;
+    }
+
+    #btn-amami {
+      left: 118px;
+    }
+
+    /* 凡例 */
+    .legend {
+      background: white;
+      padding: 6px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      font-size: 12px;
+      line-height: 1.2;
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      z-index: 1000;
+    }
+
+    .legend div {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend span {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>鹿児島県の暑さ指数</h1>
+    <div class="map-container">
+      <div id="map1" class="map"></div>
+      <button id="btn-satsuma" class="area-button active-region" onclick="moveToRegion('satsuma')">薩摩･大隈地方</button>
+      <button id="btn-amami" class="area-button" onclick="moveToRegion('amami')">種子島･屋久島･奄美地方</button>
+      <div class="legend">
+        <div><span style="background:#FF0000"></span> 危険</div>
+        <div><span style="background:#FF7F00"></span> 厳重警戒</div>
+        <div><span style="background:#FFFF00"></span> 警戒</div>
+        <div><span style="background:#00FFFF"></span> 注意</div>
+        <div><span style="background:#0000FF"></span> ほぼ安全</div>
+      </div>
+    </div>
+    <div id="humidity-info">マーカーをクリックすると湿度が表示されます</div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+    const boundsSatsuma = [[31.2, 130.0], [32.0, 131.3]];
+    const boundsAmami = [[27.5, 128.3], [31.0, 130.9]];
+    
+    let map1;
+    let markerLayer;
+
+    function initMap() {
+      map1 = L.map("map1", {
+        zoomControl: false,
+        zoomSnap: 0,
+        zoomDelta: 1 
+      });
+
+      L.control.zoom({ position: "topright" }).addTo(map1);
+
+      // 陰影起伏図 + 白地図(50%透過)
+      L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png', {
+        maxZoom: 18
+      }).addTo(map1);
+
+      L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png', {
+        opacity: 0.5,
+        maxZoom: 18
+      }).addTo(map1);
+
+      map1.setView([31.6, 130.5], 8);
+      markerLayer = L.layerGroup().addTo(map1);
+
+      loadAmedasData();
+    }
+
+    function moveToRegion(region) {
+      document.querySelectorAll(".area-button").forEach(btn => btn.classList.remove("active-region"));
+
+      if (region === "satsuma") {
+        map1.setView([31.6, 130.5], 8);
+        document.getElementById("btn-satsuma").classList.add("active-region");
+      } else if (region === "amami") {
+        map1.setView([29.2, 129.7], 6.7);
+        document.getElementById("btn-amami").classList.add("active-region");
+      }
+    }
+
+    async function loadAmedasData() {
+      try {
+        const stationRes = await fetch('https://www.jma.go.jp/bosai/amedas/const/amedastable.json');
+        const dataRes = await fetch('https://www.jma.go.jp/bosai/amedas/data/map/20250212230000.json');
+        const stations = await stationRes.json();
+        const observations = await dataRes.json();
+
+        markerLayer.clearLayers();
+
+        Object.entries(stations).forEach(([code, station]) => {
+          if (!station.lat || !station.lon) return;
+
+          const lat = station.lat[0] + station.lat[1] / 60;
+          const lon = station.lon[0] + station.lon[1] / 60;
+          const name = station.kjName;
+
+          const obs = observations[code];
+          if (!obs || obs.humidity === undefined) return;
+
+          const humidity = obs.humidity[0];
+
+          let color = humidity >= 90 ? "#FF0000" :
+                      humidity >= 80 ? "#FF7F00" :
+                      humidity >= 70 ? "#FFFF00" :
+                      humidity >= 60 ? "#00FFFF" : "#0000FF";
+
+          const popupContent = `<strong>${name} (${code})</strong><br>湿度: ${humidity}%`;
+
+          const circleMarker = L.circleMarker([lat, lon], {
+            radius: 5,
+            color: color,
+            fillColor: color,
+            fillOpacity: 0.8
+          }).bindPopup(popupContent);
+
+          circleMarker.addTo(markerLayer);
+          circleMarker.on('click', () => {
+            document.getElementById('humidity-info').innerHTML = popupContent;
+          });
+        });
+
+      } catch (error) {
+        console.error("❌ アメダスデータの取得に失敗しました", error);
+      }
+    }
+
+    initMap();
+  </script>
+</body>
+</html>
